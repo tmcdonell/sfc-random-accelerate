@@ -4,11 +4,13 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 0f4c3e8aee76f2b7063ffcdac499826a34a58951de2e0d34431ea6fcf48f5f7c
+-- hash: 3b0367b368467eb3652a65ec13cb51a9d90622429552bf8f01445872be219260
 
 name:           sfc-random-accelerate
 version:        0.1.0.0
+synopsis:       Fast, high-quality pseudo random number generation in Accelerate
 description:    Please see the README on GitHub at <https://github.com/tmcdonell/sfc-random-accelerate#readme>
+category:       Accelerate, Math
 homepage:       https://github.com/tmcdonell/sfc-random-accelerate#readme
 bug-reports:    https://github.com/tmcdonell/sfc-random-accelerate/issues
 author:         Trevor L. McDonell
@@ -26,7 +28,7 @@ source-repository head
 
 library
   exposed-modules:
-      Lib
+      Data.Array.Accelerate.System.Random.SFC
   other-modules:
       Paths_sfc_random_accelerate
   hs-source-dirs:
@@ -34,4 +36,6 @@ library
   build-depends:
       accelerate >=1.3
     , base >=4.7 && <5
+    , mtl
+    , template-haskell
   default-language: Haskell2010
