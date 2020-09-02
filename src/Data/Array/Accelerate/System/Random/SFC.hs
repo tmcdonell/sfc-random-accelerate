@@ -22,13 +22,15 @@
 
 module Data.Array.Accelerate.System.Random.SFC (
 
-  Random,  evalRandom,
-  RandomT, evalRandomT,
+  Random, RandomT(..),
+  runRandom, evalRandom, evalRandomT,
   Gen,
-  Uniform,
 
   create, createWith,
   randomVector,
+
+  Uniform(..),
+  SFC64,
 
 ) where
 
@@ -47,6 +49,11 @@ type Random = RandomT Identity
 newtype RandomT m a = RandomT { runRandomT :: StateT (Acc Gen) m a }
   deriving newtype (Functor, Applicative, Monad)
 
+-- | Unwrap a random monad computation as a function
+--
+runRandom :: Acc Gen -> Random a -> (a, Acc Gen)
+runRandom gen r = runIdentity $ runStateT (runRandomT r) gen
+
 -- | Evaluate a computation given the initial generator state and return
 -- the final value, discarding the final state.
 --
@@ -57,8 +64,7 @@ evalRandom gen = runIdentity . evalRandomT gen
 -- return the final value, discarding the final state.
 --
 evalRandomT :: Monad m => Acc Gen -> RandomT m a -> m a
-evalRandomT gen r =
-  evalStateT (runRandomT r) gen
+evalRandomT gen r = evalStateT (runRandomT r) gen
 
 
 data Gen = Gen_ (Vector SFC64)
@@ -121,7 +127,7 @@ seed a b c
 
 
 -- | Generate a vector of random values. The size of the vector is the
--- determined by the generator state built with 'create' or 'createWith'
+-- determined by the generator state built with 'create' or 'createWith'.
 --
 randomVector :: (Uniform a, Monad m) => RandomT m (Acc (Vector a))
 randomVector = RandomT . StateT $ \(Gen s) ->
