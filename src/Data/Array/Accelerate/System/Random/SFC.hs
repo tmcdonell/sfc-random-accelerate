@@ -35,6 +35,7 @@ module Data.Array.Accelerate.System.Random.SFC (
 ) where
 
 import Data.Array.Accelerate                                        as A
+import Data.Array.Accelerate.Data.Complex                           as A
 import Data.Array.Accelerate.Data.Either                            as A
 import Data.Array.Accelerate.Data.Bits                              as A
 
@@ -173,6 +174,12 @@ instance Uniform Double where
         cvt v = A.fromIntegral v * (1 / A.fromIntegral (maxBound :: Exp Word64))
      in
      first cvt (sfc64 s)
+
+instance Uniform a => Uniform (Complex a) where
+  uniform s0 =
+    let T2 r s1 = uniform s0
+        T2 c s2 = uniform s1
+     in T2 (r ::+ c) s2
 
 instance Uniform a => Uniform (Maybe a) where
   uniform s0 =
