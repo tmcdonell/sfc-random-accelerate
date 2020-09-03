@@ -97,7 +97,14 @@ sfc64 (SFC a b c counter) =
    in
    T2 tmp (SFC a' b' c' counter')
 
--- | Create a new generator state using default seeds (the array index)
+-- | Create a new generator state using default seeds (the array index).
+--
+-- You'll probably get better random numbers by using 'createWith' and
+-- seeding the initial state from a better source of entropy. For example,
+-- we can use the 'mwc-random-accelerate' package to generate the seed
+-- vector using the system's source of random numbers:
+--
+-- > gen <- createWith . use <$> MWC.randomArray MWC.uniform (Z :. 100)
 --
 create :: Shape sh => Exp sh -> Acc Gen
 create sh =
@@ -127,8 +134,9 @@ seed a b c
           (T2 (0 :: Exp Int) (SFC a b c 1))
 
 
--- | Generate a vector of random values. The size of the vector is the
--- determined by the generator state built with 'create' or 'createWith'.
+-- | Generate a vector of random values. The size of the vector is
+-- determined by the generator state that was built using 'create' or
+-- 'createWith'.
 --
 randomVector :: (Uniform a, Monad m) => RandomT m (Acc (Vector a))
 randomVector = RandomT . StateT $ \(Gen s) ->
