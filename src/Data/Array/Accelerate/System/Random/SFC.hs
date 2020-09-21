@@ -46,24 +46,29 @@ import Prelude                                                      as P
 
 type Random = RandomT Identity
 
-newtype RandomT m a = RandomT { runRandomT :: StateT (Acc (Vector SFC64)) m a }
+newtype RandomT m sh a = RandomT { runRandomT :: StateT (Acc (Array sh SFC64)) m a }
   deriving newtype (Functor, Applicative, Monad)
 
 -- | Unwrap a random monad computation as a function
 --
-runRandom :: Acc (Vector SFC64) -> Random a -> (a, Acc (Vector SFC64))
+runRandom
+    :: Shape sh
+    => Acc (Array sh SFC64)
+    -> Random sh a
+    -> (a, Acc (Array sh SFC64))
 runRandom gen r = runIdentity $ runStateT (runRandomT r) gen
 
 -- | Evaluate a computation given the initial generator state and return
 -- the final value, discarding the final state.
 --
-evalRandom :: Acc (Vector SFC64) -> Random a -> a
+evalRandom :: Shape sh => Acc (Array sh SFC64) -> Random sh a -> a
 evalRandom gen = runIdentity . evalRandomT gen
 
 -- | Evaluate a computation with the given initial generator state and
 -- return the final value, discarding the final state.
 --
-evalRandomT :: Monad m => Acc (Vector SFC64) -> RandomT m a -> m a
+evalRandomT
+    :: (Monad m, Shape sh) => Acc (Array sh SFC64) -> RandomT m sh a -> m a
 evalRandomT gen r = evalStateT (runRandomT r) gen
 
 data SFC a = SFC64_ a a a a
@@ -98,9 +103,8 @@ sfc64 (SFC a b c counter) =
 --
 -- > gen <- createWith . use <$> MWC.randomArray MWC.uniform (Z :. 100)
 --
-create :: Shape sh => Exp sh -> Acc (Vector SFC64)
-create sh =
-    generate (I1 $ shapeSize sh) (\(I1 i) -> seed_fast (A.fromIntegral i))
+create :: Shape sh => Exp sh -> Acc (Array sh SFC64)
+create sh = A.map seed_fast $ enumFromN sh 0
 
 seed_fast :: Exp Word64 -> Exp SFC64
 seed_fast s
@@ -112,7 +116,10 @@ seed_fast s
 
 -- | Create a new generator state using the given seed vector
 --
-createWith :: Acc (Vector (Word64, Word64, Word64)) -> Acc (Vector SFC64)
+createWith
+    :: Shape sh
+    => Acc (Array sh (Word64, Word64, Word64))
+    -> Acc (Array sh SFC64)
 createWith = A.map (\(T3 a b c) -> seed a b c)
 
 seed :: Exp Word64 -> Exp Word64 -> Exp Word64 -> Exp SFC64
@@ -127,7 +134,8 @@ seed a b c
 -- determined by the generator state that was built using 'create' or
 -- 'createWith'.
 --
-randomVector :: (Uniform a, Monad m) => RandomT m (Acc (Vector a))
+randomVector
+    :: (Uniform a, Monad m, Shape sh) => RandomT m sh (Acc (Array sh a))
 randomVector = RandomT . StateT $ \s -> return . A.unzip $ A.map uniform s
 
 
