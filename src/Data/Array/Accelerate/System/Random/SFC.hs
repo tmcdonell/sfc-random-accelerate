@@ -1,13 +1,17 @@
+{-# LANGUAGE AllowAmbiguousTypes        #-}
 {-# LANGUAGE ConstraintKinds            #-}
 {-# LANGUAGE DeriveAnyClass             #-}
 {-# LANGUAGE DeriveFunctor              #-}
 {-# LANGUAGE DeriveGeneric              #-}
 {-# LANGUAGE DerivingStrategies         #-}
+{-# LANGUAGE FlexibleInstances          #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE PatternSynonyms            #-}
 {-# LANGUAGE RebindableSyntax           #-}
+{-# LANGUAGE ScopedTypeVariables        #-}
 {-# LANGUAGE TemplateHaskell            #-}
 {-# LANGUAGE TypeApplications           #-}
+{-# LANGUAGE TypeFamilies               #-}
 -- |
 -- Module      : Data.Array.Accelerate.System.Random.SFC
 -- Copyright   : [2020] Trevor L. McDonell
@@ -24,9 +28,9 @@ module Data.Array.Accelerate.System.Random.SFC (
 
   Random, RandomT(..),
   runRandom, evalRandom, evalRandomT,
+  RNG(random),
 
   create, createWith,
-  randomVector,
 
   Uniform(..),
   SFC64,
@@ -46,30 +50,42 @@ import Prelude                                                      as P
 
 type Random = RandomT Identity
 
-newtype RandomT m sh a = RandomT { runRandomT :: StateT (Acc (Array sh SFC64)) m a }
+newtype RandomT m t a = RandomT { runRandomT :: StateT t m a }
   deriving newtype (Functor, Applicative, Monad)
 
--- | Unwrap a random monad computation as a function
+-- | Unwrap a random monad computation as a function, returning both the
+-- generated value and the new generator state.
 --
-runRandom
-    :: Shape sh
-    => Acc (Array sh SFC64)
-    -> Random sh a
-    -> (a, Acc (Array sh SFC64))
+runRandom :: t -> Random t a -> (a, t)
 runRandom gen r = runIdentity $ runStateT (runRandomT r) gen
 
 -- | Evaluate a computation given the initial generator state and return
 -- the final value, discarding the final state.
 --
-evalRandom :: Shape sh => Acc (Array sh SFC64) -> Random sh a -> a
+evalRandom :: t -> Random t a -> a
 evalRandom gen = runIdentity . evalRandomT gen
 
 -- | Evaluate a computation with the given initial generator state and
 -- return the final value, discarding the final state.
 --
-evalRandomT
-    :: (Monad m, Shape sh) => Acc (Array sh SFC64) -> RandomT m sh a -> m a
+evalRandomT :: (Monad m) => t -> RandomT m t a -> m a
 evalRandomT gen r = evalStateT (runRandomT r) gen
+
+
+class RNG t where
+  type Output t a
+
+  -- | Generate random values. When generating an array the size of the array is
+  -- determined by the generator state that was built using 'create' or
+  -- 'createWith'.
+  --
+  random :: (Uniform a, Monad m) => RandomT m t (Output t a)
+
+instance Shape sh => RNG (Acc (Array sh SFC64)) where
+  type Output (Acc (Array sh SFC64)) a = Acc (Array sh a)
+
+  random = RandomT $ state (A.unzip . A.map uniform)
+
 
 data SFC a = SFC64_ a a a a
   deriving (Generic, Elt)
@@ -128,15 +144,6 @@ seed a b c
   $ while (\(T2 i _) -> i A.< 18)
           (\(T2 i g) -> let T2 _ g' = sfc64 g in T2 (i+1) g')
           (T2 (0 :: Exp Int) (SFC a b c 1))
-
-
--- | Generate a vector of random values. The size of the vector is
--- determined by the generator state that was built using 'create' or
--- 'createWith'.
---
-randomVector
-    :: (Uniform a, Monad m, Shape sh) => RandomT m sh (Acc (Array sh a))
-randomVector = RandomT . StateT $ \s -> return . A.unzip $ A.map uniform s
 
 
 first :: (Elt a, Elt b, Elt c) => (Exp a -> Exp b) -> Exp (a, c) -> Exp (b, c)
