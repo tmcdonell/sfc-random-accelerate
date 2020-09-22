@@ -86,6 +86,11 @@ instance Shape sh => RNG (Acc (Array sh SFC64)) where
 
   random = RandomT $ state (A.unzip . A.map uniform)
 
+instance RNG (Exp SFC64) where
+  type Output (Exp SFC64) a = Exp a
+
+  random = RandomT $ state (unlift . uniform)
+
 
 data SFC a = SFC64_ a a a a
   deriving (Generic, Elt)
