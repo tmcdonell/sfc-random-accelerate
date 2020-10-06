@@ -1,13 +1,17 @@
+{-# LANGUAGE AllowAmbiguousTypes        #-}
 {-# LANGUAGE ConstraintKinds            #-}
 {-# LANGUAGE DeriveAnyClass             #-}
 {-# LANGUAGE DeriveFunctor              #-}
 {-# LANGUAGE DeriveGeneric              #-}
 {-# LANGUAGE DerivingStrategies         #-}
+{-# LANGUAGE FlexibleInstances          #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE PatternSynonyms            #-}
 {-# LANGUAGE RebindableSyntax           #-}
+{-# LANGUAGE ScopedTypeVariables        #-}
 {-# LANGUAGE TemplateHaskell            #-}
 {-# LANGUAGE TypeApplications           #-}
+{-# LANGUAGE TypeFamilies               #-}
 -- |
 -- Module      : Data.Array.Accelerate.System.Random.SFC
 -- Copyright   : [2020] Trevor L. McDonell
@@ -24,10 +28,9 @@ module Data.Array.Accelerate.System.Random.SFC (
 
   Random, RandomT(..),
   runRandom, evalRandom, evalRandomT,
-  Gen,
+  RNG(random),
 
   create, createWith,
-  randomVector,
 
   Uniform(..),
   SFC64,
@@ -47,32 +50,47 @@ import Prelude                                                      as P
 
 type Random = RandomT Identity
 
-newtype RandomT m a = RandomT { runRandomT :: StateT (Acc Gen) m a }
+newtype RandomT m t a = RandomT { runRandomT :: StateT t m a }
   deriving newtype (Functor, Applicative, Monad)
 
--- | Unwrap a random monad computation as a function
+-- | Unwrap a random monad computation as a function, returning both the
+-- generated value and the new generator state.
 --
-runRandom :: Acc Gen -> Random a -> (a, Acc Gen)
+runRandom :: t -> Random t a -> (a, t)
 runRandom gen r = runIdentity $ runStateT (runRandomT r) gen
 
 -- | Evaluate a computation given the initial generator state and return
 -- the final value, discarding the final state.
 --
-evalRandom :: Acc Gen -> Random a -> a
+evalRandom :: t -> Random t a -> a
 evalRandom gen = runIdentity . evalRandomT gen
 
 -- | Evaluate a computation with the given initial generator state and
 -- return the final value, discarding the final state.
 --
-evalRandomT :: Monad m => Acc Gen -> RandomT m a -> m a
+evalRandomT :: (Monad m) => t -> RandomT m t a -> m a
 evalRandomT gen r = evalStateT (runRandomT r) gen
 
 
-data Gen = Gen_ (Vector SFC64)
-  deriving (Generic, Arrays)
+class RNG t where
+  type Output t a
 
-pattern Gen :: Acc (Vector SFC64) -> Acc Gen
-pattern Gen s = Pattern s
+  -- | Generate random values. When generating an array the size of the array is
+  -- determined by the generator state that was built using 'create' or
+  -- 'createWith'.
+  --
+  random :: (Uniform a, Monad m) => RandomT m t (Output t a)
+
+instance Shape sh => RNG (Acc (Array sh SFC64)) where
+  type Output (Acc (Array sh SFC64)) a = Acc (Array sh a)
+
+  random = RandomT $ state (A.unzip . A.map uniform)
+
+instance RNG (Exp SFC64) where
+  type Output (Exp SFC64) a = Exp a
+
+  random = RandomT $ state (unlift . uniform)
+
 
 data SFC a = SFC64_ a a a a
   deriving (Generic, Elt)
@@ -106,12 +124,8 @@ sfc64 (SFC a b c counter) =
 --
 -- > gen <- createWith . use <$> MWC.randomArray MWC.uniform (Z :. 100)
 --
-create :: Shape sh => Exp sh -> Acc Gen
-create sh =
-  let n   = shapeSize sh
-      gen = generate (I1 n) (\(I1 i) -> seed_fast (A.fromIntegral i))
-  in
-  Gen gen
+create :: Shape sh => Exp sh -> Acc (Array sh SFC64)
+create sh = A.map seed_fast $ enumFromN sh 0
 
 seed_fast :: Exp Word64 -> Exp SFC64
 seed_fast s
@@ -123,8 +137,11 @@ seed_fast s
 
 -- | Create a new generator state using the given seed vector
 --
-createWith :: Acc (Vector (Word64, Word64, Word64)) -> Acc Gen
-createWith = Gen . A.map (\(T3 a b c) -> seed a b c)
+createWith
+    :: Shape sh
+    => Acc (Array sh (Word64, Word64, Word64))
+    -> Acc (Array sh SFC64)
+createWith = A.map (\(T3 a b c) -> seed a b c)
 
 seed :: Exp Word64 -> Exp Word64 -> Exp Word64 -> Exp SFC64
 seed a b c
@@ -132,16 +149,6 @@ seed a b c
   $ while (\(T2 i _) -> i A.< 18)
           (\(T2 i g) -> let T2 _ g' = sfc64 g in T2 (i+1) g')
           (T2 (0 :: Exp Int) (SFC a b c 1))
-
-
--- | Generate a vector of random values. The size of the vector is
--- determined by the generator state that was built using 'create' or
--- 'createWith'.
---
-randomVector :: (Uniform a, Monad m) => RandomT m (Acc (Vector a))
-randomVector = RandomT . StateT $ \(Gen s) ->
-  let (r, s') = A.unzip $ A.map uniform s
-   in return (r, Gen s')
 
 
 first :: (Elt a, Elt b, Elt c) => (Exp a -> Exp b) -> Exp (a, c) -> Exp (b, c)
@@ -191,14 +198,14 @@ instance Uniform a => Uniform (Complex a) where
 
 instance Uniform a => Uniform (Maybe a) where
   uniform s0 =
-    let T2 c s1 = uniform s0
+    let T2 c s1 = uniform @Bool s0
      in if c
            then T2 Nothing_ s1
            else first Just_ (uniform s1)
 
 instance (Uniform a, Uniform b) => Uniform (Either a b) where
   uniform s0 =
-    let T2 c s1 = uniform s0
+    let T2 c s1 = uniform @Bool s0
      in if c
            then first Left_  (uniform s1)
            else first Right_ (uniform s1)
