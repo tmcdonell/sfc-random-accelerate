@@ -198,14 +198,14 @@ instance Uniform a => Uniform (Complex a) where
 
 instance Uniform a => Uniform (Maybe a) where
   uniform s0 =
-    let T2 c s1 = uniform s0
+    let T2 c s1 = uniform @Bool s0
      in if c
            then T2 Nothing_ s1
            else first Just_ (uniform s1)
 
 instance (Uniform a, Uniform b) => Uniform (Either a b) where
   uniform s0 =
-    let T2 c s1 = uniform s0
+    let T2 c s1 = uniform @Bool s0
      in if c
            then first Left_  (uniform s1)
            else first Right_ (uniform s1)
